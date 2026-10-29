@@ -68,10 +68,11 @@ AMD GPUs are not supported by this fork.
 4. When setup finishes, open the address it prints in a browser, or connect an application to
    the OpenAI-compatible API.
 
-Setup downloads the model and the engine. The ready-made Windows engine is published in the
-original [Strata-DualGPU release](https://github.com/Hardin22/Strata-DualGPU/releases/latest);
-`setup.py` points there. This fork does not duplicate those binaries. If a download is
-interrupted, run `START-HERE.bat` again; it continues where it stopped.
+Setup downloads the model and the engine. The ready-made Windows engine is published in this
+repository's [releases](https://github.com/piwi-kiwi/Strata/releases/latest). The fine-tuned
+draft layer is available from the original
+[Strata-DualGPU release](https://github.com/Hardin22/Strata-DualGPU/releases/latest). If a
+download is interrupted, run `START-HERE.bat` again; it continues where it stopped.
 
 To use an existing Strata installation, unpack this repository next to it and run
 `START-HERE.bat`. Strata shares its data folder between copies on the same PC, so the model is
