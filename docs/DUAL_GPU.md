@@ -1,5 +1,11 @@
 # Two GPUs and 32 GB of RAM
 
+> These measurements are from the original Strata-DualGPU author's machine: an RTX 5080 16 GB,
+> an RTX 4060 Ti 16 GB and 32 GB of RAM. They document what each change did on that machine.
+> They are not measurements of every card pair. The fork also runs on other two-card PCs,
+> including a 12 GB + 16 GB pair with 64 GB of RAM; see [README.md](../README.md) for the
+> dedicated, one-card and shared modes.
+
 This is what the fork changes, why, and what each change measured. Everything was measured on one PC:
 
 - RTX 5080 16 GB (drives two 4K monitors) and RTX 4060 Ti 16 GB (on a PCIe 4.0 x4 chipset slot)
