@@ -1,97 +1,169 @@
-# Strata, two-GPU edition
+# Strata Dual-GPU
 
-A fork of [Strata](https://github.com/Niko1221/Strata) for a PC with two NVIDIA cards and 32 GB of RAM. I run
-Qwen3.8-Flash-Next with it every day (the Swift 1.5 IQ2_XS fine-tune) behind a coding agent, on an RTX 5080 and an
-RTX 4060 Ti.
+A fork of [Strata](https://github.com/Niko1221/Strata) for a computer with two NVIDIA GPUs
+and 32 GB of RAM. It runs the Qwen3.8-Flash-Next mixture-of-experts models locally, with both
+cards working on the same request.
 
-Same PC, same model, same settings (256K context). Every row uses speculative decoding with a draft (MTP) layer:
-Strata's stock one, or the one I fine-tuned for this model ([below](#the-fine-tuned-draft-layer)).
+The fork is based on Strata 0.1.38. It was created before upstream added its own multi-GPU
+support. Upstream now supports multiple cards, but its low-RAM mode is designed for one card;
+this fork keeps the low-RAM mode working across a layer split and overlaps the two stages so
+that neither card waits for the other.
 
-| | writes code | writes prose | reads a 32K prompt |
-|---|---:|---:|---:|
-| Strata 0.1.38 on the 5080 alone (what its setup picks for 32 GB), stock draft layer | 29 tok/s | 28 | 333 |
-| this fork on both cards, stock draft layer | 143 tok/s | 102 | 1,940 |
-| this fork on both cards, fine-tuned draft layer | 161 tok/s | 105 | 1,854 |
+## Branches
 
-With Pi, the coding agent I use, and the fine-tuned draft layer, it peaks above 200 tokens/s (209 so far), rarely
-drops under 100, and reads a 150K-token context at about 1,800 tokens/s.
+- `dualgpu` is the default branch: the dual-GPU fork described on this page.
+- `main` tracks upstream Strata 0.2.7 without the dual-GPU changes.
 
-## Why a fork
+The two branches are separate. Use `dualgpu` for the two-card setup. Use `main` only if you
+need a feature that exists in upstream 0.2.7 and not in this fork.
 
-This model's experts don't fit in 32 GB of RAM next to everything else, so Strata uses its low-RAM mode: the
-GPU keeps the most-used experts and the rest are copied into RAM. Upstream does that on one card only. If you split
-the layers across two cards, it reads those experts from the SSD instead, so its setup tells you to use one GPU and
-the second card does nothing.
+## What this fork changes
 
-Here the RAM mode works on a split. And because the two cards of a split take turns (each sat idle for more than
-half of every step on my PC), most of the work went into making them run at the same time.
+- **Low-RAM mode on a layer split.** Each card keeps a cache of its own hottest experts; the
+  rest are copied into system RAM. The model does not read experts from the SSD while it
+  answers.
+- **Pipelined windows.** The first card starts the next decoding step while the second card is
+  still checking the current one. This is enabled by default when exactly two GPUs are used.
+- **Faster card last.** The last stage also runs the output head and the draft layer, so the
+  server orders the cards by speed when the split is automatic.
+- **Per-card layer weights.** Each card loads only the dense weights of the layers it runs. The
+  freed VRAM is used for that card's expert cache.
+- **Asynchronous expert swaps.** Moving experts between VRAM and RAM no longer stops decoding
+  while the copy runs.
+- **Fewer host waits.** The stages synchronise through device-side flags, the draft chain runs
+  in one CUDA graph, and RTX 50 cards use programmatic dependent launch.
+- **Defaults for the host.** On hybrid Intel CPUs the expert pool uses the P-cores and part of
+  the E-cores; the card that drives the monitors keeps more VRAM free.
 
-## What changed
+The measured effect of each change, and every switch, is documented in
+[docs/DUAL_GPU.md](docs/DUAL_GPU.md).
 
-- The RAM copy of the experts works with `--layer-split`: each card caches the hottest experts of its own layers,
-  RAM holds the rest, nothing comes from the SSD.
-- Pipelined windows: the first card starts the next decoding step while the second is still checking the current
-  one. On by default with two GPUs.
-- The faster card goes last, since it also runs the output head and the draft model, and the automatic split
-  balances the two cards for pipelining. The server orders the cards by itself.
-- Each card keeps only the weights of the layers it runs, and the VRAM this frees goes to its expert cache.
-- Adaptive expert swaps between VRAM and RAM no longer stop decoding while they copy.
-- Fewer host waits and kernel launches per step: device-side flags between the cards, the draft chain in one CUDA
-  graph, programmatic dependent launch on RTX 50 cards.
-- Defaults for the rest of the PC: on an Intel hybrid CPU the expert pool runs on the P-cores and half of the
-  E-cores, and the card that drives your monitors keeps more VRAM free.
+## Requirements
 
-What each change measured, and every switch: [docs/DUAL_GPU.md](docs/DUAL_GPU.md).
+- Two NVIDIA GPUs. The fork was tested on an RTX 5080 16 GB and an RTX 4060 Ti 16 GB.
+  A 12 GB + 16 GB pair such as an RTX 5070 and an RTX 5060 Ti also fits the same design;
+  start with `--layer-split auto` and adjust the VRAM reserves if one card drives a display
+  or shares memory with other programs.
+- 32 GB of system RAM. More RAM allows a larger expert cache and a larger context.
+- Windows 11 for the ready-made engine. Linux is supported by the source build, but this fork
+  was not tested on Linux.
+- An NVIDIA driver and CUDA runtime compatible with the engine build.
+- Enough disk space for the model files. The recommended model is Qwen3.8-Flash-Next
+  Swift 1.5 IQ2_XS; larger quantisations need more VRAM and RAM.
 
-The answers are as good as upstream's. On 5,333 tokens of code, English and Italian, read the same way by both
-engines, the perplexity is 7.24 here and 7.28 upstream, and both pick the right next token 64% of the time.
+AMD GPUs are not supported by this fork.
 
-## Install
+## Install on Windows
 
-The same as Strata: download this repo, run `START-HERE.bat` (Linux: `./setup.sh`) and press Enter at every
-question. With two cards and 32 GB it now sets up both cards in the low-RAM mode. The ready-made Windows engine comes
-from this repo's releases; on Linux setup compiles it.
+1. Download this repository, or clone it:
 
-Already using Strata? Unzip this next to it and run `START-HERE.bat`: Strata keeps the models in a data folder
-shared by every copy on the PC, so nothing is downloaded again. A model set up for one card asks once whether to use
-both. With `"layer_split": "auto"` in the config (the default), the server picks the card order and the VRAM
-reserves at every start.
-
-## The fine-tuned draft layer
-
-Strata guesses a few tokens ahead with a small draft (MTP) layer and has the model check them all at once. I
-fine-tuned that layer on the Swift 1.5 IQ2_XS model's own outputs, so more of its guesses get accepted, and gave it
-a draft vocabulary that covers every Latin-script token, so Italian, French or German text drafts as well as English
-and code. The model still checks every guess, so the answers don't change; only the speed does.
-
-It was trained for Swift 1.5 IQ2_XS. With another model it still gives correct answers, but it may be slower than
-the stock layer.
-
-1. Download `swift15-mtp-ft2.zip` from the [release](https://github.com/Hardin22/Strata-DualGPU/releases/latest).
-2. Unzip it into Strata's data folder, next to the stock layer. The stock one is in `Strata-data\mtp\rt`, so you
-   get `Strata-data\mtp\swift15-ft2`.
-3. Open your config (`strata-*.json` in the Strata folder) and change the path after `"--mtp"` to the new folder:
-
-   ```json
-   "--mtp", "C:\\path\\to\\Strata-data\\mtp\\swift15-ft2",
+   ```sh
+   git clone https://github.com/Hardin22/Strata-DualGPU.git
+   cd Strata-DualGPU
    ```
 
-4. Restart Strata. The engine log (`strata-*.log`) should say `draft head over 143834 tokens`; the stock layer
-   says a smaller number.
+2. Double-click `START-HERE.bat`.
+3. Answer the setup questions. With two cards and 32 GB of RAM, choose the low-RAM mode and
+   the Swift 1.5 IQ2_XS model.
+4. When setup finishes, open the address it prints in a browser, or connect an application to
+   the OpenAI-compatible API.
 
-To go back, point `"--mtp"` at `mtp\rt` again. The zip has the Qwen and Swift licenses the layer is under.
+Setup downloads the model and the engine. The ready-made Windows engine is published in the
+repository's releases. If a download is interrupted, run `START-HERE.bat` again; it continues
+where it stopped.
 
-## What I tested
+To use an existing Strata installation, unpack this repository next to it and run
+`START-HERE.bat`. Strata shares its data folder between copies on the same PC, so the model is
+not downloaded again.
 
-One PC: RTX 5080 + RTX 4060 Ti (PCIe 4.0 x4), i9-14900KF, 32 GB, Windows 11, the Swift 1.5 IQ2_XS model. The other
-models and cards go through the same code, but I haven't run them. I haven't built it on Linux or for AMD cards.
-The pipelining needs exactly two cards; with three, the split runs without it.
+## Install on Linux
 
-Like upstream with its adaptive expert swaps on, the same prompt can give slightly different text from one run to
-the next, at near-ties between two tokens.
+```sh
+git clone https://github.com/Hardin22/Strata-DualGPU.git
+cd Strata-DualGPU
+./setup.sh
+```
 
-## Upstream
+The source build compiles the engine for the local CUDA version. This path was not tested on
+Linux by the author of the fork. See [docs/INSTALL.md](docs/INSTALL.md) for the general
+requirements and troubleshooting.
 
-Everything else (the models, setup, the web app, the API and how the engine works) is Strata by Niko1221 and its
-contributors, MIT licensed like this fork: their README is [README.upstream.md](README.upstream.md), and the docs
-folder is theirs apart from DUAL_GPU.md. This fork is based on Strata 0.1.38.
+## Build from source
+
+The engine is a C++/CUDA program. A source build needs CMake, Ninja or Visual Studio, a CUDA
+toolkit, and a C++ compiler.
+
+On Windows, the setup script can build the engine. For a manual build, use the same CMake
+options as upstream Strata; the upstream build instructions are in
+[README.upstream.md](README.upstream.md) and [docs/INSTALL.md](docs/INSTALL.md).
+
+## Configuration
+
+The setup writes a configuration file named `strata-*.json`. The important settings for a
+two-GPU run are:
+
+- `"layer_split": "auto"` lets the server choose the split point and the card order. This is
+  the default and is the recommended setting.
+- `"gpu_order": "as_given"` keeps the order written in the configuration. Use it only when the
+  split point was chosen for that exact order.
+- `"vram_reserve": "as_given"` disables the automatic VRAM reserves. The defaults reserve
+  1800 MiB on a card that drives a display and 512 MiB on a card that drives none.
+
+The engine flags that control the fork's behaviour are listed in
+[docs/DUAL_GPU.md](docs/DUAL_GPU.md#settings-and-switches). The most useful are:
+
+```text
+--layer-split auto          choose the split automatically
+--pipeline-windows 2        overlap the two stages (default on two GPUs)
+--pipeline-windows 0        disable overlapping
+--resident-experts          keep the expert copy in system RAM
+--no-trim-stage-weights     keep all dense weights on every card
+--list-gpus                 print the visible cards and exit
+```
+
+Do not expose the server to another computer without an API key. See
+[docs/INSTALL.md](docs/INSTALL.md) and [docs/MCP_SERVER.md](docs/MCP_SERVER.md) for the network
+options.
+
+## Performance
+
+The numbers below come from the fork's documentation. They were measured on one computer:
+RTX 5080 16 GB and RTX 4060 Ti 16 GB, i9-14900KF, 32 GB RAM, Windows 11, Swift 1.5 IQ2_XS,
+256K context, Q4_0 KV cache, speculative decoding with the stock draft layer.
+
+| Configuration | Code | Prose | 32K prompt |
+| --- | ---: | ---: | ---: |
+| Strata 0.1.38 on the RTX 5080 only | 29 tok/s | 28 tok/s | 333 tok/s |
+| This fork on both cards | 143 tok/s | 102 tok/s | 1,940 tok/s |
+
+These are measurements on one machine, not guarantees. The speed depends on the cards, the
+PCIe layout, the CPU, the model, the context size and the expert cache.
+
+The output is not bit-for-bit identical to upstream. Experts computed on the CPU and experts
+computed on the GPU round differently, so a near-tie between two tokens can choose the other
+token. The fork's documentation includes a perplexity comparison with upstream.
+
+## Limitations
+
+- Pipelining requires exactly two GPUs. With three or more cards the split still runs, but
+  without pipelining.
+- The fork is based on Strata 0.1.38. It does not contain later upstream changes.
+- The fork was tested on one Windows machine with two NVIDIA cards. Other cards, Linux and
+  AMD GPUs were not tested.
+- The ready-made draft layer in the releases was trained for Swift 1.5 IQ2_XS. With another
+  model it still produces correct answers, but it may be slower than the stock draft layer.
+- Like upstream with adaptive expert swaps, the same prompt can produce slightly different
+  text from one run to the next at near-ties.
+
+## Upstream, credits and license
+
+This repository is a fork of [Hardin22/Strata-DualGPU](https://github.com/Hardin22/Strata-DualGPU),
+which is a fork of [Niko1221/Strata](https://github.com/Niko1221/Strata).
+
+The Strata engine, server, setup, web application and documentation are the work of Niko1221
+and the Strata contributors. The dual-GPU changes and the benchmarks in
+[docs/DUAL_GPU.md](docs/DUAL_GPU.md) are from the Strata-DualGPU fork. The upstream README is
+kept as [README.upstream.md](README.upstream.md).
+
+Strata is released under the MIT license. See [LICENSE](LICENSE). Model files have their own
+licenses; check the model provider's page before redistributing them.
