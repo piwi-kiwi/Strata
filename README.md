@@ -58,8 +58,8 @@ AMD GPUs are not supported by this fork.
 1. Download this repository, or clone it:
 
    ```sh
-   git clone https://github.com/Hardin22/Strata-DualGPU.git
-   cd Strata-DualGPU
+   git clone https://github.com/piwi-kiwi/Strata.git
+   cd Strata
    ```
 
 2. Double-click `START-HERE.bat`.
@@ -69,8 +69,9 @@ AMD GPUs are not supported by this fork.
    the OpenAI-compatible API.
 
 Setup downloads the model and the engine. The ready-made Windows engine is published in the
-repository's releases. If a download is interrupted, run `START-HERE.bat` again; it continues
-where it stopped.
+original [Strata-DualGPU release](https://github.com/Hardin22/Strata-DualGPU/releases/latest);
+`setup.py` points there. This fork does not duplicate those binaries. If a download is
+interrupted, run `START-HERE.bat` again; it continues where it stopped.
 
 To use an existing Strata installation, unpack this repository next to it and run
 `START-HERE.bat`. Strata shares its data folder between copies on the same PC, so the model is
@@ -79,8 +80,8 @@ not downloaded again.
 ## Install on Linux
 
 ```sh
-git clone https://github.com/Hardin22/Strata-DualGPU.git
-cd Strata-DualGPU
+git clone https://github.com/piwi-kiwi/Strata.git
+cd Strata
 ./setup.sh
 ```
 
